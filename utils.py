@@ -63,7 +63,8 @@ def sample_function(user_train, usernum, itemnum, batch_size, maxlen, result_que
         for i in range(batch_size):
             one_batch.append(sample(uids[counter % usernum]))
             counter += 1
-        result_queue.put(zip(*one_batch))
+        u, seq, pos, neg = zip(*one_batch)
+        result_queue.put((np.array(u), np.array(seq), np.array(pos), np.array(neg)))
 
 
 class WarpSampler(object):

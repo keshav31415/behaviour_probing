@@ -106,7 +106,8 @@ if __name__ == '__main__':
             pos_labels, neg_labels = torch.ones(pos_logits.shape, device=args.device), torch.zeros(neg_logits.shape, device=args.device)
             # print("\neye ball check raw_logits:"); print(pos_logits); print(neg_logits) # check pos_logits > 0, neg_logits < 0
             adam_optimizer.zero_grad()
-            indices = np.where(pos != 0)
+            pos_tensor = torch.LongTensor(pos).to(args.device)
+            indices = (pos_tensor != 0)
             loss = bce_criterion(pos_logits[indices], pos_labels[indices])
             loss += bce_criterion(neg_logits[indices], neg_labels[indices])
             # torch.norm(param) returns the square root of the sum of squared weights (‖w‖₂), 
