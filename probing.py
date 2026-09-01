@@ -124,17 +124,20 @@ def seq_to_arr(seq_list, maxlen):
     return arr
 
 
-def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, truncate_k=None):
+def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, truncate_k=None, batch_size=256):
     model.eval()
     reps = []
     with torch.no_grad():
-        for u in user_order:
-            seq = user_train[u]
-            if truncate_k is not None:
-                seq = seq[:truncate_k]
-            arr       = seq_to_arr(seq, maxlen)
-            log_feats = model.log2feats(np.array([arr]))
-            reps.append(log_feats[0, -1, :].cpu().numpy())
+        for i in range(0, len(user_order), batch_size):
+            batch_u = user_order[i:i+batch_size]
+            arrs = []
+            for u in batch_u:
+                seq = user_train[u]
+                if truncate_k is not None:
+                    seq = seq[:truncate_k]
+                arrs.append(seq_to_arr(seq, maxlen))
+            log_feats = model.log2feats(np.array(arrs))
+            reps.extend(log_feats[:, -1, :].cpu().numpy())
     return np.array(reps)
 
 
@@ -254,32 +257,38 @@ def plot_proxy_correlation(Y, dataset_name, out_dir, fh):
 # Per-User Evaluation
 
 
-def compute_per_user_rank_percentile(model, user_train, user_valid, user_test, user_order, itemnum, maxlen, device):
+def compute_per_user_rank_percentile(model, user_train, user_valid, user_test, user_order, itemnum, maxlen, device, batch_size=256):
     model.eval()
     rank_pcts = {}
+    eval_users = [u for u in user_order if user_train.get(u) and user_test.get(u)]
     with torch.no_grad():
-        for u in user_order:
-            if not user_train.get(u) or not user_test.get(u):
-                continue
-            seq_items = user_train[u].copy()
-            if user_valid.get(u):
-                seq_items = seq_items + [user_valid[u][0]]
-            arr   = seq_to_arr(seq_items, maxlen)
-            rated = set(user_train[u]) | {0}
-            if user_valid.get(u):
-                rated.update(user_valid[u])
+        for i in range(0, len(eval_users), batch_size):
+            batch_u = eval_users[i:i+batch_size]
+            batch_arrs = []
+            batch_item_idx = []
+            for u in batch_u:
+                seq_items = user_train[u].copy()
+                if user_valid.get(u):
+                    seq_items = seq_items + [user_valid[u][0]]
+                batch_arrs.append(seq_to_arr(seq_items, maxlen))
+                rated = set(user_train[u]) | {0}
+                if user_valid.get(u):
+                    rated.update(user_valid[u])
 
-            true_item = user_test[u][0]
-            item_idx  = [true_item]
-            for _ in range(N_NEG_EVAL):
-                t = np.random.randint(1, itemnum + 1)
-                while t in rated:
+                true_item = user_test[u][0]
+                item_idx  = [true_item]
+                for _ in range(N_NEG_EVAL):
                     t = np.random.randint(1, itemnum + 1)
-                item_idx.append(t)
+                    while t in rated:
+                        t = np.random.randint(1, itemnum + 1)
+                    item_idx.append(t)
+                batch_item_idx.append(item_idx)
 
-            logits = model.predict(np.array([u]), np.array([arr]), np.array(item_idx))[0].cpu().numpy()
-            rank  = int((logits > logits[0]).sum())   # items scoring higher
-            rank_pcts[u] = 1.0 - rank / (N_NEG_EVAL + 1)
+            logits = model.predict(np.array(batch_u), np.array(batch_arrs), np.array(batch_item_idx)).cpu().numpy()
+            for b_idx, u in enumerate(batch_u):
+                u_logits = logits[b_idx]
+                rank  = int((u_logits > u_logits[0]).sum())   # items scoring higher
+                rank_pcts[u] = 1.0 - rank / (N_NEG_EVAL + 1)
     return rank_pcts
 
 
@@ -317,31 +326,37 @@ def ndcg_at_k(rank, k=10):
     return 1 / np.log2(rank + 2) if rank < k else 0.0
 
 
-def run_behavioral_stratification(model, user_train, user_valid, user_test, user_order, metrics, itemnum, maxlen, device, dataset_name, out_dir, fh):
+def run_behavioral_stratification(model, user_train, user_valid, user_test, user_order, metrics, itemnum, maxlen, device, dataset_name, out_dir, fh, batch_size=256):
     print("  Computing per-user NDCG@10 ...")
     ndcg_map = {}
     model.eval()
+    eval_users = [u for u in user_order if user_train.get(u) and user_test.get(u)]
     with torch.no_grad():
-        for u in user_order:
-            if not user_train.get(u) or not user_test.get(u):
-                continue
-            seq_items = user_train[u].copy()
-            if user_valid.get(u):
-                seq_items = seq_items + [user_valid[u][0]]
-            arr   = seq_to_arr(seq_items, maxlen)
-            rated = set(user_train[u]) | {0}
-            if user_valid.get(u):
-                rated.update(user_valid[u])
-            true_item = user_test[u][0]
-            item_idx  = [true_item]
-            for _ in range(N_NEG_EVAL):
-                t = np.random.randint(1, itemnum + 1)
-                while t in rated:
+        for i in range(0, len(eval_users), batch_size):
+            batch_u = eval_users[i:i+batch_size]
+            batch_arrs = []
+            batch_item_idx = []
+            for u in batch_u:
+                seq_items = user_train[u].copy()
+                if user_valid.get(u):
+                    seq_items = seq_items + [user_valid[u][0]]
+                batch_arrs.append(seq_to_arr(seq_items, maxlen))
+                rated = set(user_train[u]) | {0}
+                if user_valid.get(u):
+                    rated.update(user_valid[u])
+                true_item = user_test[u][0]
+                item_idx  = [true_item]
+                for _ in range(N_NEG_EVAL):
                     t = np.random.randint(1, itemnum + 1)
-                item_idx.append(t)
-            logits   = model.predict(np.array([u]), np.array([arr]), np.array(item_idx))[0].cpu().numpy()
-            rank     = int((logits > logits[0]).sum())
-            ndcg_map[u] = ndcg_at_k(rank)
+                    while t in rated:
+                        t = np.random.randint(1, itemnum + 1)
+                    item_idx.append(t)
+                batch_item_idx.append(item_idx)
+            logits = model.predict(np.array(batch_u), np.array(batch_arrs), np.array(batch_item_idx)).cpu().numpy()
+            for b_idx, u in enumerate(batch_u):
+                u_logits = logits[b_idx]
+                rank = int((u_logits > u_logits[0]).sum())
+                ndcg_map[u] = ndcg_at_k(rank)
 
     valid_users = [u for u in user_order if u in ndcg_map]
     ndcg_arr    = np.array([ndcg_map[u] for u in valid_users])
