@@ -99,6 +99,7 @@ if __name__ == '__main__':
     t0 = time.time()
     for epoch in range(epoch_start_idx, args.num_epochs + 1):
         if args.inference_only: break # just to decrease identition
+        epoch_start_time = time.time()
         for step in range(num_batch): # tqdm(range(num_batch), total=num_batch, ncols=70, leave=False, unit='b'):
             u, seq, pos, neg = sampler.next_batch() # tuples to ndarray
             u, seq, pos, neg = np.array(u), np.array(seq), np.array(pos), np.array(neg)
@@ -116,6 +117,8 @@ if __name__ == '__main__':
             loss.backward()
             adam_optimizer.step()
             print("loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())) # expected 0.4~0.6 after init few epochs
+        
+        print("Completed epoch {} in {:.2f} seconds.".format(epoch, time.time() - epoch_start_time))
 
         if epoch % 20 == 0:
             model.eval()
