@@ -5,7 +5,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from collections import Counter
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, entropy
+import json
 from scipy.sparse.linalg import svds
 from scipy.sparse import csr_matrix
 from sklearn.linear_model import Ridge
@@ -24,8 +25,13 @@ PROXY_NAMES = [
     "Recency Bias",              # temporal
     "Popularity Momentum",       # temporal
     "Rank Stability",            # structural
+    "Diversity Index",           # structural
+    "Novelty Preference",        # distributional
+    "Exploration Rate",          # distributional
+    "Cross-Category Reach",      # structural
+    "Temporal Stability",        # temporal
 ]
-ORDER_DEPENDENT = [False, False, False, True, True, True]
+ORDER_DEPENDENT = [False, False, False, True, True, True, False, False, False, False, True]
 
 MIN_SEQ_LEN    = 10
 TAIL_THRESHOLD = 0.20
@@ -68,8 +74,18 @@ def rank_stability(pop_seq):
     return float(rho) if not np.isnan(rho) else 0.0
 
 
-def compute_proxies(user_train, item_popularity, tail_items):
+def compute_proxies(user_train, item_popularity, tail_items, dataset_name):
+    try:
+        with open(f'data/{dataset_name}_metadata.json', 'r') as f:
+            meta = json.load(f)
+    except Exception:
+        meta = {'users': {}, 'items': {}}
+
     metrics, user_order = {}, []
+    from collections import Counter
+    import numpy as np
+    from scipy.stats import spearmanr, entropy
+    
     for u in user_train:
         seq = user_train[u]
         N   = len(seq)
@@ -78,32 +94,65 @@ def compute_proxies(user_train, item_popularity, tail_items):
 
         pop = np.array([item_popularity.get(i, 0.0) for i in seq])
 
-        # 1. Popularity Bias — mean item popularity
         pop_bias = float(np.mean(pop))
-
-        # 2. Popularity Concentration — variance of popularity scores
         pop_conc = float(np.var(pop))
-
-        # 3. Head-Tail Ratio — fraction of long-tail interactions
         ht_ratio = float(sum(1 for i in seq if i in tail_items) / N)
 
-        # 4. Recency Bias — last-5 vs first-5 popularity shift
         recent_pop   = np.mean([item_popularity.get(i, 0.0) for i in seq[-5:]])
         old_pop      = np.mean([item_popularity.get(i, 0.0) for i in seq[:5]])
         recency_bias = float(recent_pop - old_pop)
 
-        # 5. Popularity Momentum — OLS slope of popularity over sequence position
         positions = np.arange(N, dtype=float)
         denom = ((positions - positions.mean()) ** 2).sum()
         slope = float(((positions - positions.mean()) * (pop - pop.mean())).sum() / denom) if denom > 1e-9 else 0.0
 
-        # 6. Rank Stability — Spearman rho between first and second half
         rs = rank_stability(pop)
         if np.isnan(rs):
             continue   
 
-        metrics[u]   = np.array([pop_bias, pop_conc, ht_ratio,
-                                  recency_bias, slope, rs], dtype=float)
+        novelty = float(np.mean([-np.log(item_popularity.get(i, 1e-9)) for i in seq]))
+
+        cats = []
+        for item in seq:
+            c = meta['items'].get(str(item), {}).get('categories', [])
+            if isinstance(c, list):
+                if len(c) > 0 and isinstance(c[0], list): 
+                    c = [x for sub in c for x in sub]
+            if isinstance(c, str):
+                c = [c]
+            cats.extend(c if c else ['unknown'])
+            
+        if not cats:
+            diversity, exploration, cross_category, temp_stab = 0.0, 0.0, 0.0, 0.0
+        else:
+            cat_counts = Counter(cats)
+            total_cats = sum(cat_counts.values())
+            shares = np.array(list(cat_counts.values())) / total_cats
+            
+            diversity = float(1.0 - np.sum(shares ** 2))
+            
+            top3 = set(c for c, _ in cat_counts.most_common(3))
+            exploration = float(sum(1 for c in cats if c not in top3) / len(cats))
+            
+            cross_category = float(entropy(shares))
+            
+            half = len(cats) // 2
+            if half > 0:
+                c1 = Counter(cats[:half])
+                c2 = Counter(cats[half:])
+                common = set(c1.keys()) | set(c2.keys())
+                if len(common) > 1:
+                    v1 = [c1.get(c, 0) for c in common]
+                    v2 = [c2.get(c, 0) for c in common]
+                    rho, _ = spearmanr(v1, v2)
+                    temp_stab = float(rho) if not np.isnan(rho) else 0.0
+                else:
+                    temp_stab = 0.0
+            else:
+                temp_stab = 0.0
+
+        metrics[u] = np.array([pop_bias, pop_conc, ht_ratio, recency_bias, slope, rs, 
+                               diversity, novelty, exploration, cross_category, temp_stab], dtype=float)
         user_order.append(u)
 
     return metrics, user_order
@@ -695,8 +744,7 @@ def run_probe(dataset_name, model_path,
 
     item_popularity, item_counts = compute_item_popularity(user_train)
     tail_items                   = head_tail_split(item_counts)
-    metrics, user_order          = compute_proxies(user_train, item_popularity,
-                                                    tail_items)
+    metrics, user_order = compute_proxies(user_train, item_popularity, tail_items, dataset_name)
     n_users = len(user_order)
     print(f"[INFO] Qualified users: {n_users}  |  Items: {itemnum}  "
           f"|  Tail items: {len(tail_items)}")
