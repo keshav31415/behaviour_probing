@@ -420,8 +420,12 @@ def run_behavioral_stratification(model, user_train, user_valid, user_test, user
         f"{'Q4 (high)':>10}  {'Q4−Q1':>8}\n"
         f"  {'-'*82}\n", fh)
 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 9))
+        n_prox = len(PROXY_NAMES)
+    rows = (n_prox + 2) // 3
+    fig, axes = plt.subplots(rows, 3, figsize=(15, 4.5 * rows))
     axes = axes.flatten()
+    for extra_ax in axes[n_prox:]:
+        extra_ax.set_visible(False)
     colors = ['#2196F3', '#4CAF50', '#FF9800', '#F44336']
 
     for pi, name in enumerate(PROXY_NAMES):
@@ -507,8 +511,12 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
         _pw(row + "\n", fh)
 
     # Figure 1: overall ρ vs k 
-    fig, axes = plt.subplots(2, 3, figsize=(15, 9))
+        n_prox = len(PROXY_NAMES)
+    rows = (n_prox + 2) // 3
+    fig, axes = plt.subplots(rows, 3, figsize=(15, 4.5 * rows))
     axes = axes.flatten()
+    for extra_ax in axes[n_prox:]:
+        extra_ax.set_visible(False)
     x_ticks = list(range(len(ks_plot)))
 
     for pi, name in enumerate(PROXY_NAMES):
