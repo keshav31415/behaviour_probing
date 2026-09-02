@@ -114,7 +114,8 @@ def compute_proxies(user_train, item_popularity, tail_items, dataset_name):
 
         cats = []
         for item in seq:
-            c = meta['items'].get(str(item), {}).get('categories', [])
+            c_data = meta['items'].get(str(item), {})
+            c = c_data.get('categories', c_data.get('genres', []))
             if isinstance(c, list):
                 if len(c) > 0 and isinstance(c[0], list): 
                     c = [x for sub in c for x in sub]
@@ -244,7 +245,7 @@ def plot_proxy_correlation(Y, dataset_name, out_dir, fh):
             pval_mat[i, j] = pval
 
     
-    short = ["PopBias", "PopConc", "HT-Ratio", "RecBias", "PopMom", "RankStab"]
+    short = ["PopBias", "PopConc", "HT-Ratio", "RecBias", "PopMom", "RankStab", "DivIndex", "NovPref", "Explore", "CrossCat", "TempStab"]
     _pw(f"\n{'='*65}\n"
         f"  Proxy Correlation Matrix (Spearman ρ) — {dataset_name}\n"
         f"{'='*65}\n"
