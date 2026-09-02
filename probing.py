@@ -420,7 +420,7 @@ def run_behavioral_stratification(model, user_train, user_valid, user_test, user
         f"{'Q4 (high)':>10}  {'Q4−Q1':>8}\n"
         f"  {'-'*82}\n", fh)
 
-        n_prox = len(PROXY_NAMES)
+    n_prox = len(PROXY_NAMES)
     rows = (n_prox + 2) // 3
     fig, axes = plt.subplots(rows, 3, figsize=(15, 4.5 * rows))
     axes = axes.flatten()
@@ -511,7 +511,7 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
         _pw(row + "\n", fh)
 
     # Figure 1: overall ρ vs k 
-        n_prox = len(PROXY_NAMES)
+    n_prox = len(PROXY_NAMES)
     rows = (n_prox + 2) // 3
     fig, axes = plt.subplots(rows, 3, figsize=(15, 4.5 * rows))
     axes = axes.flatten()
