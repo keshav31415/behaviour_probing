@@ -735,6 +735,117 @@ def load_sasrec(dataset_name, model_path, usernum, itemnum, device):
     return model, ns
 
 
+
+def run_niche_evaluation(model, user_train, user_valid, user_test, user_order, item_popularity, tail_items, itemnum, maxlen, device, dataset_name, out_dir, fh, batch_size=64):
+    import time
+    _pw(f"\n{'='*75}\n"
+        f"  Experiment 5: Niche Preference & Coverage Metrics  [{dataset_name}]\n"
+        f"{'='*75}\n", fh)
+    
+    print("  Computing full-catalog top-10 for Niche Evaluation...")
+    eval_users = [u for u in user_order if user_train.get(u) and user_test.get(u)]
+    
+    # Pre-calculate popularities for stratification
+    # Quartiles of item popularity
+    pop_values = np.array(list(item_popularity.values()))
+    pop_bins = np.percentile(pop_values, [0, 25, 50, 75, 100])
+    
+    tail_recall = []
+    tail_ndcg = []
+    recommended_items = set()
+    total_tail_recs = 0
+    total_recs = 0
+    
+    stratified_ndcg = [[] for _ in range(4)]
+    
+    calibration_errors = []
+    
+    model.eval()
+    with torch.no_grad():
+        all_items = np.arange(1, itemnum + 1)
+        
+        for i in range(0, len(eval_users), batch_size):
+            batch_u = eval_users[i:i+batch_size]
+            batch_arrs = []
+            
+            for u in batch_u:
+                seq_items = user_train[u].copy()
+                if user_valid.get(u):
+                    seq_items = seq_items + [user_valid[u][0]]
+                batch_arrs.append(seq_to_arr(seq_items, maxlen))
+            
+            # Predict scores for all items
+            batch_item_idx = np.tile(all_items, (len(batch_u), 1))
+            logits = model.predict(np.array(batch_u), np.array(batch_arrs), batch_item_idx).cpu().numpy()
+            
+            for b_idx, u in enumerate(batch_u):
+                u_logits = logits[b_idx]
+                target_i = user_test[u][0]
+                
+                # Mask out training/validation items
+                rated = set(user_train.get(u, []))
+                if user_valid.get(u):
+                    rated.add(user_valid[u][0])
+                for r_item in rated:
+                    if 1 <= r_item <= itemnum:
+                        u_logits[r_item - 1] = -1e9
+                        
+                # Get Top-10
+                top10_idx = np.argsort(-u_logits)[:10] + 1
+                top10_set = set(top10_idx)
+                
+                # Global metrics
+                for rec in top10_idx:
+                    recommended_items.add(rec)
+                    if rec in tail_items:
+                        total_tail_recs += 1
+                total_recs += 10
+                
+                # Calibration
+                train_seq = user_train.get(u, [])
+                if len(train_seq) > 0:
+                    hist_tail_ratio = sum(1 for tr_i in train_seq if tr_i in tail_items) / len(train_seq)
+                    rec_tail_ratio = sum(1 for rec in top10_idx if rec in tail_items) / 10.0
+                    calibration_errors.append(abs(hist_tail_ratio - rec_tail_ratio))
+                
+                # Target Evaluation
+                # What rank did the true item get?
+                target_score = u_logits[target_i - 1]
+                rank = (u_logits > target_score).sum()
+                ndcg10 = ndcg_at_k(rank, 10)
+                
+                if target_i in tail_items:
+                    tail_recall.append(1.0 if rank < 10 else 0.0)
+                    tail_ndcg.append(ndcg10)
+                    
+                # Stratification
+                tgt_pop = item_popularity.get(target_i, 0)
+                for q in range(4):
+                    if tgt_pop <= pop_bins[q+1] or q == 3:
+                        stratified_ndcg[q].append(ndcg10)
+                        break
+
+    avg_tail_rec = np.mean(tail_recall) if tail_recall else 0.0
+    avg_tail_ndcg = np.mean(tail_ndcg) if tail_ndcg else 0.0
+    coverage = len(recommended_items) / float(itemnum)
+    exposure = total_tail_recs / float(total_recs) if total_recs > 0 else 0.0
+    mae_calib = np.mean(calibration_errors) if calibration_errors else 0.0
+    
+    strat_means = [np.mean(q) if q else 0.0 for q in stratified_ndcg]
+    
+    _pw(f"  Tail Recall@10:       {avg_tail_rec:.4f}\n", fh)
+    _pw(f"  Tail NDCG@10:         {avg_tail_ndcg:.4f}\n", fh)
+    _pw(f"  Catalog Coverage:     {coverage:.4f}  ({len(recommended_items)} / {itemnum})\n", fh)
+    _pw(f"  Tail Exposure:        {exposure:.4f}  ({total_tail_recs} / {total_recs})\n", fh)
+    _pw(f"  Calibration MAE:      {mae_calib:.4f}\n", fh)
+    
+    _pw(f"\n  Target Item Popularity Stratification (NDCG@10):\n", fh)
+    _pw(f"    Q1 (Rarest items):  {strat_means[0]:.4f}\n", fh)
+    _pw(f"    Q2:                 {strat_means[1]:.4f}\n", fh)
+    _pw(f"    Q3:                 {strat_means[2]:.4f}\n", fh)
+    _pw(f"    Q4 (Most popular):  {strat_means[3]:.4f}\n", fh)
+
+
 def run_probe(dataset_name, model_path,
               shuffled_model_path=None,
               run_mf=False,
@@ -837,6 +948,14 @@ def run_probe(dataset_name, model_path,
                 user_order, metrics, itemnum, model_args.maxlen, device,
                 dataset_name, out_dir, f
             )
+
+    
+        print("\n[Exp 5] Niche metrics ...")
+        run_niche_evaluation(
+            model, user_train, user_valid, user_test,
+            user_order, item_popularity, tail_items, itemnum, model_args.maxlen, device,
+            dataset_name, out_dir, f
+        )
 
     print(f"\n[DONE] → {out_txt}\n")
 
