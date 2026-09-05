@@ -143,7 +143,7 @@ if __name__ == '__main__':
                 best_test_ndcg = max(t_test[0], best_test_ndcg)
                 best_test_hr = max(t_test[1], best_test_hr)
                 folder = args.dataset + '_' + args.train_dir
-                fname = 'SASRec.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
+                fname = args.model_type + '.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
                 fname = fname.format(epoch, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen)
                 torch.save(model.state_dict(), os.path.join(folder, fname))
 
@@ -154,7 +154,7 @@ if __name__ == '__main__':
     
         if epoch == args.num_epochs:
             folder = args.dataset + '_' + args.train_dir
-            fname = 'SASRec.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
+            fname = args.model_type + '.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
             fname = fname.format(args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen)
             torch.save(model.state_dict(), os.path.join(folder, fname))
     
