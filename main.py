@@ -70,8 +70,10 @@ if __name__ == '__main__':
         except:
             pass # just ignore those failed init layers
 
-    model.pos_emb.weight.data[0, :] = 0
-    model.item_emb.weight.data[0, :] = 0
+    if hasattr(model, 'pos_emb'):
+        model.pos_emb.weight.data[0, :] = 0
+    if hasattr(model, 'item_emb'):
+        model.item_emb.weight.data[0, :] = 0
 
     # this fails embedding init 'Embedding' object has no attribute 'dim'
     # model.apply(torch.nn.init.xavier_uniform_)
