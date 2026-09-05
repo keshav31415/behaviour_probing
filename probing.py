@@ -981,6 +981,7 @@ if __name__ == '__main__':
     parser.add_argument('--run_coldstart',         action='store_true')
     parser.add_argument('--run_behavior_analysis', action='store_true')
     parser.add_argument('--device',                default='cuda')
+    parser.add_argument('--model_type', default='SASRec', type=str)
     parser.add_argument('--out_dir',               default='probe_results')
     parser.add_argument('--maxlen', default=200, type=int)
     parser.add_argument('--hidden_units', default=50, type=int)

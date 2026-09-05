@@ -160,13 +160,7 @@ class GRU4Rec(torch.nn.Module):
         pos_logits = (log_feats * pos_embs).sum(dim=-1)
         neg_logits = (log_feats * neg_embs).sum(dim=-1)
 
-        pos_labels, neg_labels = torch.ones(pos_logits.shape, device=self.dev), torch.zeros(neg_logits.shape, device=self.dev)
-        
-        import numpy as np
-        indices = np.where(pos_seqs != 0)
-        loss = torch.nn.BCEWithLogitsLoss()(pos_logits[indices], pos_labels[indices]) + \
-               torch.nn.BCEWithLogitsLoss()(neg_logits[indices], neg_labels[indices])
-        return loss
+        return pos_logits, neg_logits
 
     def predict(self, user_ids, log_seqs, item_indices):
         log_feats = self.log2feats(log_seqs)
