@@ -992,6 +992,7 @@ if __name__ == '__main__':
     run_probe(
         dataset_name          = args.dataset,
         model_path            = args.model_path,
+        model_type            = args.model_type,
         shuffled_model_path   = args.shuffled_model_path,
         run_mf                = args.run_mf,
         run_coldstart_flag    = args.run_coldstart,
