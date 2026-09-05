@@ -120,3 +120,62 @@ class SASRec(torch.nn.Module):
         # preds = self.pos_sigmoid(logits) # rank same item list for different users
 
         return logits # preds # (U, I)
+
+
+class GRU4Rec(torch.nn.Module):
+    def __init__(self, user_num, item_num, args):
+        super(GRU4Rec, self).__init__()
+
+        self.user_num = user_num
+        self.item_num = item_num
+        self.dev = args.device
+
+        self.item_emb = torch.nn.Embedding(self.item_num + 1, args.hidden_units, padding_idx=0)
+        self.emb_dropout = torch.nn.Dropout(p=args.dropout_rate)
+
+        # Authentic GRU4Rec from RecBole uses nn.GRU
+        self.gru_layers = torch.nn.GRU(
+            input_size=args.hidden_units,
+            hidden_size=args.hidden_units,
+            num_layers=args.num_blocks, # Map SASRec blocks to GRU layers
+            bias=False,
+            batch_first=True,
+        )
+        self.dense = torch.nn.Linear(args.hidden_units, args.hidden_units)
+
+    def log2feats(self, log_seqs):
+        seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
+        seqs_emb = self.emb_dropout(seqs)
+        
+        gru_out, _ = self.gru_layers(seqs_emb)
+        gru_out = self.dense(gru_out) # RecBole standard transform
+        return gru_out
+
+    def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):
+        log_feats = self.log2feats(log_seqs) 
+
+        pos_embs = self.item_emb(torch.LongTensor(pos_seqs).to(self.dev))
+        neg_embs = self.item_emb(torch.LongTensor(neg_seqs).to(self.dev))
+
+        pos_logits = (log_feats * pos_embs).sum(dim=-1)
+        neg_logits = (log_feats * neg_embs).sum(dim=-1)
+
+        pos_labels, neg_labels = torch.ones(pos_logits.shape, device=self.dev), torch.zeros(neg_logits.shape, device=self.dev)
+        
+        import numpy as np
+        indices = np.where(pos_seqs != 0)
+        loss = torch.nn.BCEWithLogitsLoss()(pos_logits[indices], pos_labels[indices]) + \
+               torch.nn.BCEWithLogitsLoss()(neg_logits[indices], neg_labels[indices])
+        return loss
+
+    def predict(self, user_ids, log_seqs, item_indices):
+        log_feats = self.log2feats(log_seqs)
+        final_feat = log_feats[:, -1, :] 
+        
+        item_embs = self.item_emb(torch.LongTensor(item_indices).to(self.dev))
+        
+        if item_embs.dim() == 2:
+            logits = (final_feat * item_embs).sum(dim=-1)
+        else:
+            logits = (final_feat.unsqueeze(1) * item_embs).sum(dim=-1)
+        return logits
