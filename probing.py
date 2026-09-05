@@ -13,7 +13,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
-from model import SASRec
+from model import SASRec, GRU4Rec
 from utils import data_partition
 
 
@@ -729,7 +729,12 @@ def load_sasrec(dataset_name, model_path, usernum, itemnum, device):
         num_epochs=201, num_heads=args.num_heads, dropout_rate=0.2, l2_emb=0.0,
         device=device, norm_first=args.norm_first
     )
-    model = SASRec(usernum, itemnum, ns).to(device)
+    if model_type == 'SASRec':
+        model = SASRec(usernum, itemnum, ns).to(device)
+    elif model_type == 'GRU4Rec':
+        model = GRU4Rec(usernum, itemnum, ns).to(device)
+    else:
+        raise ValueError("Invalid model type")
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     return model, ns
@@ -846,7 +851,7 @@ def run_niche_evaluation(model, user_train, user_valid, user_test, user_order, i
     _pw(f"    Q4 (Most popular):  {strat_means[3]:.4f}\n", fh)
 
 
-def run_probe(dataset_name, model_path,
+def run_probe(dataset_name, model_path, model_type='SASRec',
               shuffled_model_path=None,
               run_mf=False,
               run_coldstart_flag=False,
