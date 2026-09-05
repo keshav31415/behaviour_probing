@@ -723,7 +723,7 @@ def format_comparison_table(res_seq, res_shuf, res_mf, res_null, dataset_name, n
 
 
 
-def load_sasrec(dataset_name, model_path, usernum, itemnum, device):
+def load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type='SASRec'):
     ns = argparse.Namespace(
         dataset=dataset_name, maxlen=args.maxlen, hidden_units=args.hidden_units, num_blocks=2,
         num_epochs=201, num_heads=args.num_heads, dropout_rate=0.2, l2_emb=0.0,
@@ -884,7 +884,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
     model_shuf = None
     if shuffled_model_path:
         model_shuf, _ = load_sasrec(dataset_name, shuffled_model_path,
-                                     usernum, itemnum, device)
+                                     usernum, itemnum, device, model_type)
 
     with open(out_txt, 'w') as f:
         _pw(f"Behavioral Probing — {dataset_name}\n"
