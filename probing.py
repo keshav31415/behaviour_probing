@@ -879,8 +879,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
     train_idx, test_idx     = train_test_split(idx_all, test_size=0.2,
                                                random_state=42)
 
-    model, model_args = load_sasrec(dataset_name, model_path,
-                                    usernum, itemnum, device)
+    model, model_args = load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type)
     model_shuf = None
     if shuffled_model_path:
         model_shuf, _ = load_sasrec(dataset_name, shuffled_model_path,
