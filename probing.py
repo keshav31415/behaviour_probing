@@ -936,9 +936,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
         # Cold-Start
         if run_coldstart_flag:
             print("\n[Exp 2] Cold-start stability ...")
-            run_coldstart(model, user_train, user_order, Y,
-                          train_idx, test_idx, model_args.maxlen, device,
-                          dataset_name, out_dir, f)
+            run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, model_args.maxlen, device, dataset_name, out_dir, f, model_type=model_type, itemnum=itemnum)
 
         # Behavior Analysis
         if run_behavior_analysis:
