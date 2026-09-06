@@ -735,6 +735,8 @@ def load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type='
         model = SASRec(usernum, itemnum, ns).to(device)
     elif model_type == 'GRU4Rec':
         model = GRU4Rec(usernum, itemnum, ns).to(device)
+    elif model_type == 'BERT4Rec':
+        model = BERT4Rec(usernum, itemnum, ns).to(device)
     else:
         raise ValueError("Invalid model type")
     model.load_state_dict(torch.load(model_path, map_location=device))
