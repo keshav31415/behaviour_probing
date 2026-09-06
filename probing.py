@@ -213,8 +213,20 @@ def extract_mf_embeddings(user_train, user_order, item_popularity, hidden_dim=50
 
 
 def scale_split(X, train_idx, test_idx):
+    # Add small noise to avoid zero-variance collapse issues
+    import numpy as np
+    X_train = X[train_idx]
+    if np.isnan(X_train).any():
+        X_train = np.nan_to_num(X_train)
+    if np.var(X_train) < 1e-9:
+        X_train += np.random.normal(0, 1e-5, X_train.shape)
+        
+    X_test = X[test_idx]
+    if np.isnan(X_test).any():
+        X_test = np.nan_to_num(X_test)
+        
     sc = StandardScaler()
-    return sc.fit_transform(X[train_idx]), sc.transform(X[test_idx])
+    return sc.fit_transform(X_train), sc.transform(X_test)
 
 
 def probe_one(X_tr, X_te, y_tr, y_te, alpha=1.0):
