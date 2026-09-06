@@ -13,7 +13,7 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
-from model import SASRec, GRU4Rec
+from model import SASRec, GRU4Rec, BERT4Rec
 from utils import data_partition
 
 
