@@ -479,7 +479,7 @@ def run_behavioral_stratification(model, user_train, user_valid, user_test, user
 # Experiment 2: Cold-Start
 
 
-def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen, device, dataset_name, out_dir, fh,  strat_proxy_idx=3):   
+def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen, device, dataset_name, out_dir, fh, model_type=None, itemnum=None, strat_proxy_idx=3):   
     _pw(f"\n{'='*65}\n"
         f"  Experiment 2: Cold-Start Stability — {dataset_name}\n"
         f"  k values: {COLD_START_KS}\n"
