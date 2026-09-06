@@ -146,7 +146,12 @@ def evaluate(model, dataset, args):
             for u in batch_u:
                 seq = np.zeros([args.maxlen], dtype=np.int32)
                 idx = args.maxlen - 1
-                seq[idx] = valid[u][0]
+                if getattr(args, 'model_type', '') == 'BERT4Rec':
+                    seq[idx] = itemnum + 1 # [MASK]
+                    idx -= 1
+                    seq[idx] = valid[u][0]
+                else:
+                    seq[idx] = valid[u][0]
                 idx -= 1
                 for item in reversed(train[u]):
                     seq[idx] = item
@@ -194,6 +199,9 @@ def evaluate_valid(model, dataset, args):
             for u in batch_u:
                 seq = np.zeros([args.maxlen], dtype=np.int32)
                 idx = args.maxlen - 1
+                if getattr(args, 'model_type', '') == 'BERT4Rec':
+                    seq[idx] = itemnum + 1 # [MASK]
+                    idx -= 1
                 for item in reversed(train[u]):
                     seq[idx] = item
                     idx -= 1
@@ -218,3 +226,69 @@ def evaluate_valid(model, dataset, args):
                     print(".", end="")
                     sys.stdout.flush()
     return NDCG / valid_user, HT / valid_user
+
+def bert_sample_function(user_train, usernum, itemnum, batch_size, maxlen, result_queue, SEED, mask_prob=0.2):
+    def sample(uid):
+        while len(user_train[uid]) <= 1: uid = np.random.randint(1, usernum + 1)
+        
+        seq = np.zeros([maxlen], dtype=np.int32)
+        pos = np.zeros([maxlen], dtype=np.int32)
+        neg = np.zeros([maxlen], dtype=np.int32)
+        
+        ts = set(user_train[uid])
+        mask_token = itemnum + 1
+        idx = maxlen - 1
+        
+        for i in reversed(user_train[uid]):
+            if np.random.rand() < mask_prob:
+                seq[idx] = mask_token
+                pos[idx] = i
+                neg[idx] = random_neq(1, itemnum + 1, ts)
+            else:
+                seq[idx] = i
+                pos[idx] = 0
+                neg[idx] = 0
+            
+            idx -= 1
+            if idx == -1: break
+            
+        return (uid, seq, pos, neg)
+        
+    np.random.seed(SEED)
+    uids = np.arange(1, usernum+1, dtype=np.int32)
+    counter = 0
+    while True:
+        if counter % usernum == 0:
+            np.random.shuffle(uids)
+        one_batch = []
+        for i in range(batch_size):
+            one_batch.append(sample(uids[counter % usernum]))
+            counter += 1
+        u, seq, pos, neg = zip(*one_batch)
+        result_queue.put((np.array(u), np.array(seq), np.array(pos), np.array(neg)))
+
+class BertWarpSampler(object):
+    def __init__(self, User, usernum, itemnum, batch_size=64, maxlen=10, n_workers=1, mask_prob=0.2):
+        self.result_queue = Queue(maxsize=n_workers * 10)
+        self.processors = []
+        for i in range(n_workers):
+            self.processors.append(
+                Process(target=bert_sample_function, args=(User,
+                                                      usernum,
+                                                      itemnum,
+                                                      batch_size,
+                                                      maxlen,
+                                                      self.result_queue,
+                                                      np.random.randint(2e9),
+                                                      mask_prob
+                                                      )))
+            self.processors[-1].daemon = True
+            self.processors[-1].start()
+
+    def next_batch(self):
+        return self.result_queue.get()
+
+    def close(self):
+        for p in self.processors:
+            p.terminate()
+            p.join()

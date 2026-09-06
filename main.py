@@ -3,7 +3,7 @@ import time
 import torch
 import argparse
 
-from model import SASRec, GRU4Rec
+from model import SASRec, GRU4Rec, BERT4Rec
 from utils import *
 
 def str2bool(s):
@@ -54,12 +54,17 @@ if __name__ == '__main__':
     f = open(os.path.join(args.dataset + '_' + args.train_dir, 'log.txt'), 'w')
     f.write('epoch (val_ndcg, val_hr) (test_ndcg, test_hr)\n')
     
-    sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
+    if args.model_type == 'BERT4Rec':
+        sampler = BertWarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
+    else:
+        sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
     
     if args.model_type == 'SASRec':
         model = SASRec(usernum, itemnum, args).to(args.device)
     elif args.model_type == 'GRU4Rec':
         model = GRU4Rec(usernum, itemnum, args).to(args.device)
+    elif args.model_type == 'BERT4Rec':
+        model = BERT4Rec(usernum, itemnum, args).to(args.device)
     else:
         raise ValueError("Invalid model type")
     

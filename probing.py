@@ -163,18 +163,20 @@ def compute_proxies(user_train, item_popularity, tail_items, dataset_name):
 # Embedding Extraction
 
 
-def seq_to_arr(seq_list, maxlen):
+def seq_to_arr(seq_list, maxlen, model_type=None, itemnum=None):
     arr = np.zeros([maxlen], dtype=np.int32)
     idx = maxlen - 1
+    if model_type == 'BERT4Rec':
+        arr[idx] = itemnum + 1
+        idx -= 1
     for item in reversed(seq_list):
+        if idx == -1: break
         arr[idx] = item
         idx -= 1
-        if idx == -1:
-            break
     return arr
 
 
-def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, truncate_k=None, batch_size=256):
+def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, truncate_k=None, batch_size=256, model_type=None, itemnum=None):
     model.eval()
     reps = []
     with torch.no_grad():
@@ -185,7 +187,7 @@ def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, tru
                 seq = user_train[u]
                 if truncate_k is not None:
                     seq = seq[:truncate_k]
-                arrs.append(seq_to_arr(seq, maxlen))
+                arrs.append(seq_to_arr(seq, maxlen, model_type, itemnum))
             log_feats = model.log2feats(np.array(arrs))
             reps.extend(log_feats[:, -1, :].cpu().numpy())
     return np.array(reps)
@@ -486,7 +488,7 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
     rho_matrix = np.zeros((len(COLD_START_KS), len(PROXY_NAMES)))
     for ki, k in enumerate(COLD_START_KS):
         X_k = extract_sasrec_embeddings(model, user_train, user_order,
-                                         maxlen, device, truncate_k=k)
+                                         maxlen, device, truncate_k=k, model_type=model_type, itemnum=itemnum)
         X_tr, X_te = scale_split(X_k, train_idx, test_idx)
         for pi in range(len(PROXY_NAMES)):
             res = probe_one(X_tr, X_te, Y[train_idx, pi], Y[test_idx, pi])
@@ -494,7 +496,7 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
         print(f"  k={k:4d}  Popularity Bias ρ={rho_matrix[ki, 0]:.4f}")
 
     X_full = extract_sasrec_embeddings(model, user_train, user_order,
-                                        maxlen, device, truncate_k=None)
+                                        maxlen, device, truncate_k=None, model_type=model_type, itemnum=itemnum)
     X_tr, X_te = scale_split(X_full, train_idx, test_idx)
     full_rho = [probe_one(X_tr, X_te, Y[train_idx, pi], Y[test_idx, pi])['rho']
                 for pi in range(len(PROXY_NAMES))]
@@ -568,7 +570,7 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
                                if u in u_to_idx])
         Y_group = Y[group_idx]
         X_k = extract_sasrec_embeddings(model, user_train, group_users,
-                                         maxlen, device, truncate_k=k)
+                                         maxlen, device, truncate_k=k, model_type=model_type, itemnum=itemnum)
         # For groups we do a simple 80/20 split (no shared split needed here)
         n_g = len(group_idx)
         tr_g, te_g = train_test_split(np.arange(n_g), test_size=0.2, random_state=42)
@@ -893,7 +895,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
         # Probing
         print("\n[Exp 1] Probing representations ...")
         X_seq   = extract_sasrec_embeddings(model, user_train, user_order,
-                                             model_args.maxlen, device)
+                                             model_args.maxlen, device, model_type=model_type, itemnum=itemnum)
         res_seq = run_probe_set(X_seq, Y, train_idx, test_idx)
         format_probe_table("SASRec (sequential)", res_seq,
                            dataset_name, n_users, f)
@@ -902,7 +904,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
         if model_shuf:
             X_shuf   = extract_sasrec_embeddings(model_shuf, user_train,
                                                   user_order,
-                                                  model_args.maxlen, device)
+                                                  model_args.maxlen, device, model_type=model_type, itemnum=itemnum)
             res_shuf = run_probe_set(X_shuf, Y, train_idx, test_idx)
             format_probe_table("SASRec (shuffled)", res_shuf,
                                dataset_name, n_users, f)
