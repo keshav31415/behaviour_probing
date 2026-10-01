@@ -142,6 +142,7 @@ class GRU4Rec(torch.nn.Module):
             batch_first=True,
         )
         self.dense = torch.nn.Linear(args.hidden_units, args.hidden_units)
+        self.last_layernorm = torch.nn.LayerNorm(args.hidden_units, eps=1e-8)
 
     def log2feats(self, log_seqs):
         seqs = self.item_emb(torch.LongTensor(log_seqs).to(self.dev))
@@ -149,6 +150,7 @@ class GRU4Rec(torch.nn.Module):
         
         gru_out, _ = self.gru_layers(seqs_emb)
         gru_out = self.dense(gru_out) # RecBole standard transform
+        gru_out = self.last_layernorm(gru_out)
         return gru_out
 
     def forward(self, user_ids, log_seqs, pos_seqs, neg_seqs):

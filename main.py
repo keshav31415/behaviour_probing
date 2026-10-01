@@ -141,6 +141,7 @@ if __name__ == '__main__':
             # should be torch.norm(param)**2 or the way below which is faster.
             for param in model.item_emb.parameters(): loss += args.l2_emb * torch.sum(param ** 2)    
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             adam_optimizer.step()
             # print("loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())) # expected 0.4~0.6 after init few epochs
         

@@ -1,14 +1,19 @@
-# aggregate_results.py
 import os
+import sys
 import glob
 import json
 import argparse
-import numpy as np
+import math
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 def aggregate_seed_results(results_base_dir='probe_results', output_dir='probe_results'):
     seed_dirs = sorted(glob.glob(os.path.join(results_base_dir, 'seed_*')))
     if not seed_dirs:
-        # Check if json files are directly in results_base_dir
         json_files = glob.glob(os.path.join(results_base_dir, 'results_*.json'))
         if not json_files:
             print(f"No seed directories or result JSONs found in {results_base_dir}")
@@ -17,13 +22,12 @@ def aggregate_seed_results(results_base_dir='probe_results', output_dir='probe_r
 
     print(f"Found {len(seed_dirs)} seed result directory/directories: {seed_dirs}")
 
-    # Map: (dataset, model_type) -> list of seed results
     collected = {}
 
     for sdir in seed_dirs:
         for jpath in glob.glob(os.path.join(sdir, 'results_*.json')):
             try:
-                with open(jpath, 'r') as f:
+                with open(jpath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 key = (data['dataset'], data['model_type'])
                 if key not in collected:
@@ -39,7 +43,7 @@ def aggregate_seed_results(results_base_dir='probe_results', output_dir='probe_r
     os.makedirs(output_dir, exist_ok=True)
     summary_txt = os.path.join(output_dir, 'statistical_summary.txt')
 
-    with open(summary_txt, 'w') as out_f:
+    with open(summary_txt, 'w', encoding='utf-8') as out_f:
         header = f"{'='*80}\nBEHAVIORAL PROBING: MULTI-SEED STATISTICAL SUMMARY (Mean ± Std)\n{'='*80}\n"
         print(header)
         out_f.write(header + '\n')
@@ -62,8 +66,12 @@ def aggregate_seed_results(results_base_dir='probe_results', output_dir='probe_r
                         model_res = r.get(key_name)
                         if model_res and pi < len(model_res) and model_res[pi]:
                             rho = model_res[pi].get('rho')
-                            if rho is not None and not np.isnan(rho):
-                                vals.append(rho)
+                            if rho is not None:
+                                try:
+                                    if not math.isnan(float(rho)):
+                                        vals.append(float(rho))
+                                except (ValueError, TypeError):
+                                    pass
                     return vals
 
                 seq_vals = get_vals('sequential')
@@ -72,10 +80,12 @@ def aggregate_seed_results(results_base_dir='probe_results', output_dir='probe_r
 
                 def fmt(vals):
                     if not vals:
-                        return "N/A"
+                        return "Failed/NaN"
                     if len(vals) == 1:
-                        return f"{vals[0]:.4f}"
-                    return f"{np.mean(vals):.4f} ± {np.std(vals):.4f}"
+                        return f"{vals[0]:.4f} (1 seed)"
+                    mean = sum(vals) / len(vals)
+                    std = math.sqrt(sum((x - mean) ** 2 for x in vals) / len(vals))
+                    return f"{mean:.4f} ± {std:.4f}"
 
                 line = f"{proxy:<26} | {fmt(seq_vals):<18} | {fmt(shuf_vals):<18} | {fmt(mf_vals):<18}\n"
                 print(line, end="")
