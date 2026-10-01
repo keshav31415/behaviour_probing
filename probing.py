@@ -744,11 +744,12 @@ def format_comparison_table(res_seq, res_shuf, res_mf, res_null, dataset_name, n
 
 
 
-def load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type='SASRec'):
+def load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type='SASRec',
+                maxlen=200, hidden_units=50, num_heads=1, norm_first=False):
     ns = argparse.Namespace(
-        dataset=dataset_name, maxlen=args.maxlen, hidden_units=args.hidden_units, num_blocks=2,
-        num_epochs=201, num_heads=args.num_heads, dropout_rate=0.2, l2_emb=0.0,
-        device=device, norm_first=args.norm_first
+        dataset=dataset_name, maxlen=maxlen, hidden_units=hidden_units, num_blocks=2,
+        num_epochs=201, num_heads=num_heads, dropout_rate=0.2, l2_emb=0.0,
+        device=device, norm_first=norm_first
     )
     if model_type == 'SASRec':
         model = SASRec(usernum, itemnum, ns).to(device)
@@ -881,7 +882,11 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
               run_behavior_analysis=False,
               device='cuda',
               out_dir='probe_results',
-              seed=42):
+              seed=42,
+              maxlen=200,
+              hidden_units=50,
+              num_heads=1,
+              norm_first=False):
 
     import random
     random.seed(seed)
@@ -910,11 +915,13 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
     train_idx, test_idx     = train_test_split(idx_all, test_size=0.2,
                                                random_state=seed)
 
-    model, model_args = load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type)
+    model, model_args = load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type,
+                                    maxlen=maxlen, hidden_units=hidden_units, num_heads=num_heads, norm_first=norm_first)
     model_shuf = None
     if shuffled_model_path:
         model_shuf, _ = load_sasrec(dataset_name, shuffled_model_path,
-                                     usernum, itemnum, device, model_type)
+                                     usernum, itemnum, device, model_type,
+                                     maxlen=maxlen, hidden_units=hidden_units, num_heads=num_heads, norm_first=norm_first)
 
     with open(out_txt, 'w') as f:
         _pw(f"Behavioral Probing — {dataset_name}\n"
@@ -1049,4 +1056,8 @@ if __name__ == '__main__':
         device                = args.device,
         out_dir               = args.out_dir,
         seed                  = args.seed,
+        maxlen                = args.maxlen,
+        hidden_units          = args.hidden_units,
+        num_heads             = args.num_heads,
+        norm_first            = args.norm_first,
     )
