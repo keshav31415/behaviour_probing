@@ -68,10 +68,11 @@ def sample_function(user_train, usernum, itemnum, batch_size, maxlen, result_que
 
 
 class WarpSampler(object):
-    def __init__(self, User, usernum, itemnum, batch_size=64, maxlen=10, n_workers=1):
+    def __init__(self, User, usernum, itemnum, batch_size=64, maxlen=10, n_workers=1, seed=42):
         self.result_queue = Queue(maxsize=n_workers * 10)
         self.processors = []
         for i in range(n_workers):
+            worker_seed = (int(seed) * 1000 + i + 1) % (2**31 - 1)
             self.processors.append(
                 Process(target=sample_function, args=(User,
                                                       usernum,
@@ -79,7 +80,7 @@ class WarpSampler(object):
                                                       batch_size,
                                                       maxlen,
                                                       self.result_queue,
-                                                      np.random.randint(2e9)
+                                                      worker_seed
                                                       )))
             self.processors[-1].daemon = True
             self.processors[-1].start()
@@ -268,10 +269,11 @@ def bert_sample_function(user_train, usernum, itemnum, batch_size, maxlen, resul
         result_queue.put((np.array(u), np.array(seq), np.array(pos), np.array(neg)))
 
 class BertWarpSampler(object):
-    def __init__(self, User, usernum, itemnum, batch_size=64, maxlen=10, n_workers=1, mask_prob=0.2):
+    def __init__(self, User, usernum, itemnum, batch_size=64, maxlen=10, n_workers=1, mask_prob=0.2, seed=42):
         self.result_queue = Queue(maxsize=n_workers * 10)
         self.processors = []
         for i in range(n_workers):
+            worker_seed = (int(seed) * 1000 + i + 1) % (2**31 - 1)
             self.processors.append(
                 Process(target=bert_sample_function, args=(User,
                                                       usernum,
@@ -279,7 +281,7 @@ class BertWarpSampler(object):
                                                       batch_size,
                                                       maxlen,
                                                       self.result_queue,
-                                                      np.random.randint(2e9),
+                                                      worker_seed,
                                                       mask_prob
                                                       )))
             self.processors[-1].daemon = True

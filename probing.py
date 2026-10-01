@@ -16,6 +16,12 @@ from sklearn.preprocessing import StandardScaler
 from model import SASRec, GRU4Rec, BERT4Rec
 from utils import data_partition
 
+def show_image(img_path):
+    try:
+        from IPython.display import Image, display
+        display(Image(filename=img_path))
+    except Exception:
+        pass
 
 # Constants and hyperparameters
 PROXY_NAMES = [
@@ -260,29 +266,27 @@ def plot_proxy_correlation(Y, dataset_name, out_dir, fh):
 
     
     short = ["PopBias", "PopConc", "HT-Ratio", "RecBias", "PopMom", "RankStab", "DivIndex", "NovPref", "Explore", "CrossCat", "TempStab"]
-    _pw(f"\n{'='*65}\n"
-        f"  Proxy Correlation Matrix (Spearman ρ) — {dataset_name}\n"
-        f"{'='*65}\n"
-        f"  {'':12}" + "".join(f"{s:>10}" for s in short) + "\n"
-        f"  {'-'*74}\n", fh)
-    for i, name in enumerate(PROXY_NAMES):
-        row = f"  {short[i]:12}" + "".join(f"{corr_mat[i,j]:10.3f}" for j in range(n))
-        _pw(row + "\n", fh)
+    # _pw(f"\n{'='*65}\n"
+    #     f"  Proxy Correlation Matrix (Spearman ρ) — {dataset_name}\n"
+    #     f"{'='*65}\n"
+    #     f"  {'':12}" + "".join(f"{s:>10}" for s in short) + "\n"
+    #     f"  {'-'*74}\n", fh)
+    # for i, name in enumerate(PROXY_NAMES):
+    #     row = f"  {short[i]:12}" + "".join(f"{corr_mat[i,j]:10.3f}" for j in range(n))
+    #     _pw(row + "\n", fh)
 
-    
-    high_pairs = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            if abs(corr_mat[i, j]) > 0.5:
-                high_pairs.append((PROXY_NAMES[i], PROXY_NAMES[j], corr_mat[i, j]))
-    if high_pairs:
-        _pw(f"\n  High correlations (|ρ| > 0.5) to note:\n", fh)
-        for a, b, r in high_pairs:
-            _pw(f"    {a}  ↔  {b}:  ρ = {r:.3f}\n", fh)
-    else:
-        _pw(f"\n  No proxy pair exceeds |ρ| = 0.5 — proxies are sufficiently independent.\n", fh)
+    # high_pairs = []
+    # for i in range(n):
+    #     for j in range(i + 1, n):
+    #         if abs(corr_mat[i, j]) > 0.5:
+    #             high_pairs.append((PROXY_NAMES[i], PROXY_NAMES[j], corr_mat[i, j]))
+    # if high_pairs:
+    #     _pw(f"\n  High correlations (|ρ| > 0.5) to note:\n", fh)
+    #     for a, b, r in high_pairs:
+    #         _pw(f"    {a}  ↔  {b}:  ρ = {r:.3f}\n", fh)
+    # else:
+    #     _pw(f"\n  No proxy pair exceeds |ρ| = 0.5 — proxies are sufficiently independent.\n", fh)
 
-    
     fig, ax = plt.subplots(figsize=(8, 6.5))
     im = ax.imshow(corr_mat, vmin=-1, vmax=1, cmap='RdBu_r', aspect='auto')
     plt.colorbar(im, ax=ax, label='Spearman ρ')
@@ -315,6 +319,7 @@ def plot_proxy_correlation(Y, dataset_name, out_dir, fh):
     fig.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"  Proxy correlation figure saved → {path}")
+    show_image(path)
 
 
 
@@ -485,13 +490,14 @@ def run_behavioral_stratification(model, user_train, user_valid, user_test, user
     fig.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"  Stratification figure saved → {path}")
+    show_image(path)
 
 
 
 # Experiment 2: Cold-Start
 
 
-def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen, device, dataset_name, out_dir, fh, model_type=None, itemnum=None, strat_proxy_idx=3):   
+def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen, device, dataset_name, out_dir, fh, model_type=None, itemnum=None, strat_proxy_idx=3, seed=42):   
     _pw(f"\n{'='*65}\n"
         f"  Experiment 2: Cold-Start Stability — {dataset_name}\n"
         f"  k values: {COLD_START_KS}\n"
@@ -554,6 +560,7 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
     fig.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"  Cold-start figure saved → {path}")
+    show_image(path)
 
     # Figure 2: stratified by behavioral group 
     # Split ALL users (not just test) by strat_proxy to get stable quartile boundaries
@@ -585,7 +592,7 @@ def run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, maxlen,
                                          maxlen, device, truncate_k=k, model_type=model_type, itemnum=itemnum)
         # For groups we do a simple 80/20 split (no shared split needed here)
         n_g = len(group_idx)
-        tr_g, te_g = train_test_split(np.arange(n_g), test_size=0.2, random_state=42)
+        tr_g, te_g = train_test_split(np.arange(n_g), test_size=0.2, random_state=seed)
         results = []
         for pi in range(len(PROXY_NAMES)):
             res = probe_one(*scale_split(X_k, tr_g, te_g),
@@ -873,12 +880,20 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
               run_coldstart_flag=False,
               run_behavior_analysis=False,
               device='cuda',
-              out_dir='probe_results'):
+              out_dir='probe_results',
+              seed=42):
+
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
     os.makedirs(out_dir, exist_ok=True)
-    out_txt = os.path.join(out_dir, f"results_{dataset_name}.txt")
+    out_txt = os.path.join(out_dir, f"results_{dataset_name}_{model_type}.txt")
 
-    print(f"\n{'#'*65}\n#  Dataset: {dataset_name}\n{'#'*65}\n")
+    print(f"\n{'#'*65}\n#  Dataset: {dataset_name} | Seed: {seed}\n{'#'*65}\n")
 
     dataset = data_partition(dataset_name)
     [user_train, user_valid, user_test, usernum, itemnum] = dataset
@@ -893,7 +908,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
     Y                       = np.array([metrics[u] for u in user_order])
     idx_all                 = np.arange(n_users)
     train_idx, test_idx     = train_test_split(idx_all, test_size=0.2,
-                                               random_state=42)
+                                               random_state=seed)
 
     model, model_args = load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type)
     model_shuf = None
@@ -904,14 +919,14 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
     with open(out_txt, 'w') as f:
         _pw(f"Behavioral Probing — {dataset_name}\n"
             f"Model : {model_path}\n"
-            f"Users : {n_users}  Items: {itemnum}\n\n", f)
+            f"Users : {n_users}  Items: {itemnum}  Seed: {seed}\n\n", f)
 
         # Probing
         print("\n[Exp 1] Probing representations ...")
         X_seq   = extract_sasrec_embeddings(model, user_train, user_order,
                                              model_args.maxlen, device, model_type=model_type, itemnum=itemnum)
         res_seq = run_probe_set(X_seq, Y, train_idx, test_idx)
-        format_probe_table("SASRec (sequential)", res_seq,
+        format_probe_table(f"{model_type} (sequential)", res_seq,
                            dataset_name, n_users, f)
 
         res_shuf = None
@@ -920,7 +935,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
                                                   user_order,
                                                   model_args.maxlen, device, model_type=model_type, itemnum=itemnum)
             res_shuf = run_probe_set(X_shuf, Y, train_idx, test_idx)
-            format_probe_table("SASRec (shuffled)", res_shuf,
+            format_probe_table(f"{model_type} (shuffled)", res_shuf,
                                dataset_name, n_users, f)
 
         res_mf = None
@@ -932,7 +947,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
             format_probe_table("MF-SVD baseline", res_mf,
                                dataset_name, n_users, f)
 
-        np.random.seed(42)
+        np.random.seed(seed)
         X_null   = np.random.randn(n_users, 50).astype(np.float32)
         res_null = run_probe_set(X_null, Y, train_idx, test_idx)
         format_probe_table("Random Null", res_null, dataset_name, n_users, f)
@@ -941,24 +956,44 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
             format_comparison_table(res_seq, res_shuf, res_mf, res_null,
                                     dataset_name, n_users, f)
 
-        # Proxy Correlation 
-        print("\n[Exp 1] Proxy correlation matrix ...")
+        # Save structured JSON metrics for statistical aggregation across seeds
+        json_out = os.path.join(out_dir, f"results_{dataset_name}_{model_type}.json")
+        try:
+            results_data = {
+                'dataset': dataset_name,
+                'model_type': model_type,
+                'seed': seed,
+                'proxies': PROXY_NAMES,
+                'sequential': res_seq,
+                'shuffled': res_shuf,
+                'mf': res_mf,
+                'null': res_null,
+            }
+            with open(json_out, 'w') as jf:
+                json.dump(results_data, jf, indent=2)
+            print(f"  Structured metrics saved → {json_out}")
+        except Exception as e:
+            print(f"  Warning: could not write json metrics: {e}")
+
+        # Proxy Correlation (saves figure and displays inline)
+        # print("\n[Exp 1] Proxy correlation matrix ...")
         plot_proxy_correlation(Y, dataset_name, out_dir, f)
 
         # Cold-Start
         if run_coldstart_flag:
             print("\n[Exp 2] Cold-start stability ...")
-            run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, model_args.maxlen, device, dataset_name, out_dir, f, model_type=model_type, itemnum=itemnum)
+            run_coldstart(model, user_train, user_order, Y, train_idx, test_idx, model_args.maxlen, device, dataset_name, out_dir, f, model_type=model_type, itemnum=itemnum, seed=seed)
 
         # Behavior Analysis
         if run_behavior_analysis:
-            print("\n[Exp 3] Behavior-error correlation ...")
-            rank_pcts = compute_per_user_rank_percentile(
-                model, user_train, user_valid, user_test,
-                user_order, itemnum, model_args.maxlen, device
-            )
-            run_behavior_error_correlation(rank_pcts, metrics, user_order,
-                                           dataset_name, out_dir, f)
+            # [Exp 3] Behavior-error correlation (commented out as requested)
+            # print("\n[Exp 3] Behavior-error correlation ...")
+            # rank_pcts = compute_per_user_rank_percentile(
+            #     model, user_train, user_valid, user_test,
+            #     user_order, itemnum, model_args.maxlen, device
+            # )
+            # run_behavior_error_correlation(rank_pcts, metrics, user_order,
+            #                                dataset_name, out_dir, f)
 
             print("\n[Exp 4] Behavioral stratification ...")
             run_behavioral_stratification(
@@ -1000,6 +1035,7 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_units', default=50, type=int)
     parser.add_argument('--num_heads', default=1, type=int)
     parser.add_argument('--norm_first', action='store_true', default=False)
+    parser.add_argument('--seed', default=42, type=int, help='Random seed for reproducible evaluation')
     args = parser.parse_args()
 
     run_probe(
@@ -1012,4 +1048,5 @@ if __name__ == '__main__':
         run_behavior_analysis = args.run_behavior_analysis,
         device                = args.device,
         out_dir               = args.out_dir,
-    )
+        seed                  = args.seed,
+    )

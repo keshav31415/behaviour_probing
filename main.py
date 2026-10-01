@@ -1,10 +1,19 @@
 import os
 import time
+import random
+import numpy as np
 import torch
 import argparse
 
 from model import SASRec, GRU4Rec, BERT4Rec
 from utils import *
+
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
 
 def str2bool(s):
     if s not in {'false', 'true'}:
@@ -28,6 +37,7 @@ parser.add_argument('--model_type', default='SASRec', type=str)
 parser.add_argument('--inference_only', default=False, type=str2bool)
 parser.add_argument('--state_dict_path', default=None, type=str)
 parser.add_argument('--norm_first', action='store_true', default=False)
+parser.add_argument('--seed', default=42, type=int, help='Random seed for reproducible training')
 
 args = parser.parse_args()
 if not os.path.isdir(args.dataset + '_' + args.train_dir):
@@ -37,6 +47,7 @@ with open(os.path.join(args.dataset + '_' + args.train_dir, 'args.txt'), 'w') as
 f.close()
 
 if __name__ == '__main__':
+    set_seed(args.seed)
 
     u2i_index, i2u_index = build_index(args.dataset)
     
@@ -55,9 +66,9 @@ if __name__ == '__main__':
     f.write('epoch (val_ndcg, val_hr) (test_ndcg, test_hr)\n')
     
     if args.model_type == 'BERT4Rec':
-        sampler = BertWarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
+        sampler = BertWarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3, seed=args.seed)
     else:
-        sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3)
+        sampler = WarpSampler(user_train, usernum, itemnum, batch_size=args.batch_size, maxlen=args.maxlen, n_workers=3, seed=args.seed)
     
     if args.model_type == 'SASRec':
         model = SASRec(usernum, itemnum, args).to(args.device)
@@ -131,11 +142,11 @@ if __name__ == '__main__':
             for param in model.item_emb.parameters(): loss += args.l2_emb * torch.sum(param ** 2)    
             loss.backward()
             adam_optimizer.step()
-            print("loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())) # expected 0.4~0.6 after init few epochs
+            # print("loss in epoch {} iteration {}: {}".format(epoch, step, loss.item())) # expected 0.4~0.6 after init few epochs
         
-        print("Completed epoch {} in {:.2f} seconds.".format(epoch, time.time() - epoch_start_time))
+        # print("Completed epoch {} in {:.2f} seconds.".format(epoch, time.time() - epoch_start_time))
 
-        if epoch % 20 == 0:
+        if epoch % 20 == 0 or (args.num_epochs <= 5 and epoch == args.num_epochs):
             model.eval()
             t1 = time.time() - t0
             T += t1
