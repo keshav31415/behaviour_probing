@@ -1,9 +1,17 @@
 .DS_Store
 __pycache__/
 *_default/
+*_shuffled/
 notes.txt
 .vscode/
 .git_backup/
 .env
 kernel-metadata.json
 kaggle_output/
+*.pdf
+*.pptx
+*.zip
+*.gz
+data/ml-1m/
+probe_results/
+checkpoints/

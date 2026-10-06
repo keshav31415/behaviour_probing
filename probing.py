@@ -25,19 +25,21 @@ def show_image(img_path):
 
 # Constants and hyperparameters
 PROXY_NAMES = [
-    "Popularity Bias",           # distributional
-    "Popularity Concentration",  # distributional
-    "Head-Tail Ratio",           # distributional
-    "Recency Bias",              # temporal
-    "Popularity Momentum",       # temporal
-    "Rank Stability",            # structural
-    "Diversity Index",           # structural
-    "Novelty Preference",        # distributional
-    "Exploration Rate",          # distributional
-    "Cross-Category Reach",      # structural
-    "Temporal Stability",        # temporal
+    "Popularity Bias (PB)",
+    "Popularity Concentration (PC)",
+    "Head-Tail Ratio (HT)",
+    "Novelty Preference (NP)",
+    "Diversity Index (DI)",
+    "Exploration Rate (ER)",
+    "Category Reach (CR)",
+    "Recency Bias (RB)",
+    "Popularity Momentum (PM)",
+    "Transition Predictability (TP)",
+    "Topical Drift (DR)",
+    "Temporal Stability (TS)",
+    "Random Score (RS)",
 ]
-ORDER_DEPENDENT = [False, False, False, True, True, True, False, False, False, False, True]
+ORDER_DEPENDENT = [False, False, False, False, False, False, False, True, True, True, True, True, False]
 
 MIN_SEQ_LEN    = 10
 TAIL_THRESHOLD = 0.20
@@ -80,7 +82,7 @@ def rank_stability(pop_seq):
     return float(rho) if not np.isnan(rho) else 0.0
 
 
-def compute_proxies(user_train, item_popularity, tail_items, dataset_name):
+def compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=None):
     try:
         with open(f'data/{dataset_name}_metadata.json', 'r') as f:
             meta = json.load(f)
@@ -91,6 +93,43 @@ def compute_proxies(user_train, item_popularity, tail_items, dataset_name):
     from collections import Counter
     import numpy as np
     from scipy.stats import spearmanr, entropy
+
+    # 1. Precompute transition PMI for TP (Transition Predictability)
+    pair_counts = Counter()
+    unigram_counts = Counter()
+    total_pairs = 0
+    for u, seq in user_train.items():
+        for t in range(len(seq) - 1):
+            pair_counts[(seq[t], seq[t+1])] += 1
+            unigram_counts[seq[t]] += 1
+            total_pairs += 1
+        if seq:
+            unigram_counts[seq[-1]] += 1
+    total_items = max(1, sum(unigram_counts.values()))
+    total_pairs = max(1, total_pairs)
+    pmi_cache = {}
+    for (i1, i2), cnt in pair_counts.items():
+        p_ij = cnt / total_pairs
+        p_i = unigram_counts[i1] / total_items
+        p_j = unigram_counts[i2] / total_items
+        pmi_cache[(i1, i2)] = float(np.log(max(p_ij / max(p_i * p_j, 1e-12), 1e-12)))
+
+    # 2. Random item score for RS (Random Score Control)
+    np.random.seed(42)
+    max_item_id = itemnum if itemnum else (max(max(seq) for seq in user_train.values() if seq) + 10)
+    item_rand = {i: float(np.random.randn()) for i in range(1, max_item_id + 1)}
+
+    # 3. Category index mapping for DR (Topical Drift)
+    all_cats = set()
+    for item_id, idata in meta.get('items', {}).items():
+        c = idata.get('categories', idata.get('genres', []))
+        if isinstance(c, list):
+            if c and isinstance(c[0], list): c = [x for sub in c for x in sub]
+        elif isinstance(c, str): c = [c]
+        for cat in c: all_cats.add(cat)
+    all_cats = sorted(list(all_cats))
+    cat2idx = {c: i for i, c in enumerate(all_cats)}
+    n_cats = len(all_cats)
     
     for u in user_train:
         seq = user_train[u]
@@ -100,66 +139,98 @@ def compute_proxies(user_train, item_popularity, tail_items, dataset_name):
 
         pop = np.array([item_popularity.get(i, 0.0) for i in seq])
 
+        # PB: Popularity Bias
         pop_bias = float(np.mean(pop))
+        # PC: Popularity Concentration
         pop_conc = float(np.var(pop))
+        # HT: Head-Tail Ratio
         ht_ratio = float(sum(1 for i in seq if i in tail_items) / N)
-
-        recent_pop   = np.mean([item_popularity.get(i, 0.0) for i in seq[-5:]])
-        old_pop      = np.mean([item_popularity.get(i, 0.0) for i in seq[:5]])
-        recency_bias = float(recent_pop - old_pop)
-
-        positions = np.arange(N, dtype=float)
-        denom = ((positions - positions.mean()) ** 2).sum()
-        slope = float(((positions - positions.mean()) * (pop - pop.mean())).sum() / denom) if denom > 1e-9 else 0.0
-
-        rs = rank_stability(pop)
-        if np.isnan(rs):
-            continue   
-
+        # NP: Novelty Preference
         novelty = float(np.mean([-np.log(item_popularity.get(i, 1e-9)) for i in seq]))
 
+        # Categorical proxies
         cats = []
+        cat_seq = []
         for item in seq:
-            c_data = meta['items'].get(str(item), {})
+            c_data = meta.get('items', {}).get(str(item), {})
             c = c_data.get('categories', c_data.get('genres', []))
             if isinstance(c, list):
                 if len(c) > 0 and isinstance(c[0], list): 
                     c = [x for sub in c for x in sub]
             if isinstance(c, str):
                 c = [c]
-            cats.extend(c if c else ['unknown'])
+            c = c if c else ['unknown']
+            cats.extend(c)
+            cat_seq.append(c)
             
         if not cats:
-            diversity, exploration, cross_category, temp_stab = 0.0, 0.0, 0.0, 0.0
+            diversity, exploration, cross_category, temp_stab, dr = 0.0, 0.0, 0.0, 0.0, 0.0
         else:
             cat_counts = Counter(cats)
             total_cats = sum(cat_counts.values())
             shares = np.array(list(cat_counts.values())) / total_cats
             
+            # DI: Diversity Index
             diversity = float(1.0 - np.sum(shares ** 2))
             
+            # ER: Exploration Rate
             top3 = set(c for c, _ in cat_counts.most_common(3))
             exploration = float(sum(1 for c in cats if c not in top3) / len(cats))
             
+            # CR: Category Reach
             cross_category = float(entropy(shares))
             
-            half = len(cats) // 2
-            if half > 0:
-                c1 = Counter(cats[:half])
-                c2 = Counter(cats[half:])
-                common = set(c1.keys()) | set(c2.keys())
-                if len(common) > 1:
-                    v1 = [c1.get(c, 0) for c in common]
-                    v2 = [c2.get(c, 0) for c in common]
-                    rho, _ = spearmanr(v1, v2)
-                    temp_stab = float(rho) if not np.isnan(rho) else 0.0
-                else:
-                    temp_stab = 0.0
+            # Temporal Taste Dynamics: DR (Topical Drift) and TS (Temporal Stability)
+            half = N // 2
+            c_first = Counter([c for sub in cat_seq[:half] for c in sub])
+            c_second = Counter([c for sub in cat_seq[half:] for c in sub])
+            
+            # DR: 1 - cosine similarity between first-half and second-half category vectors
+            if n_cats > 0:
+                v1 = np.zeros(n_cats)
+                v2 = np.zeros(n_cats)
+                for c, cnt in c_first.items():
+                    if c in cat2idx: v1[cat2idx[c]] = cnt
+                for c, cnt in c_second.items():
+                    if c in cat2idx: v2[cat2idx[c]] = cnt
+                norm1, norm2 = np.linalg.norm(v1), np.linalg.norm(v2)
+                dr = float(1.0 - (np.dot(v1, v2) / (norm1 * norm2))) if (norm1 > 1e-9 and norm2 > 1e-9) else 0.0
+            else:
+                dr = 0.0
+            
+            # TS: Category rank correlation between first and second half
+            common = set(c_first.keys()) | set(c_second.keys())
+            if len(common) > 1:
+                v1_list = [c_first.get(c, 0) for c in common]
+                v2_list = [c_second.get(c, 0) for c in common]
+                rho_ts, _ = spearmanr(v1_list, v2_list)
+                temp_stab = float(rho_ts) if not np.isnan(rho_ts) else 0.0
             else:
                 temp_stab = 0.0
 
-        metrics[u] = np.array([pop_bias, pop_conc, ht_ratio, recency_bias, slope, rs, 
-                               diversity, novelty, exploration, cross_category, temp_stab], dtype=float)
+        # Temporal Popularity Dynamics: RB and PM
+        w = min(5, N // 2)
+        recency_bias = float(np.mean(pop[-w:]) - np.mean(pop[:w]))
+        positions = np.arange(N, dtype=float)
+        denom = ((positions - positions.mean()) ** 2).sum()
+        slope = float(((positions - positions.mean()) * (pop - pop.mean())).sum() / denom) if denom > 1e-9 else 0.0
+
+        # TP: Transition Predictability (Mean PMI)
+        tp = float(np.mean([pmi_cache.get((seq[t], seq[t+1]), 0.0) for t in range(N - 1)])) if N > 1 else 0.0
+
+        # RS: Random Score Control
+        rs_ctrl = float(np.mean([item_rand.get(i, 0.0) for i in seq]))
+
+        # Suite matching Table 2 (13 proxies: 7 static, 5 temporal, 1 control)
+        # Static: PB, PC, HT, NP, DI, ER, CR
+        # Temporal: RB, PM, TP, DR, TS
+        # Control: RS
+        metrics[u] = np.array([
+            pop_bias, pop_conc, ht_ratio, novelty,
+            diversity, exploration, cross_category,
+            recency_bias, slope, tp, dr, temp_stab,
+            rs_ctrl
+        ], dtype=float)
         user_order.append(u)
 
     return metrics, user_order
@@ -199,6 +270,30 @@ def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, tru
     return np.array(reps)
 
 
+
+def extract_boi_embeddings(model, user_train, user_order, device):
+    model.eval()
+    reps = []
+    with torch.no_grad():
+        for u in user_order:
+            seq = user_train[u]
+            items = torch.LongTensor(seq).to(device)
+            emb = model.item_emb(items) # (len, d)
+            reps.append(emb.mean(dim=0).cpu().numpy())
+    return np.array(reps)
+
+
+def extract_last_item_embeddings(model, user_train, user_order, device):
+    model.eval()
+    reps = []
+    with torch.no_grad():
+        for u in user_order:
+            seq = user_train[u]
+            last_item = torch.LongTensor([seq[-1]]).to(device)
+            emb = model.item_emb(last_item).squeeze(0) # (d,)
+            reps.append(emb.cpu().numpy())
+    return np.array(reps)
+
 def extract_mf_embeddings(user_train, user_order, item_popularity, hidden_dim=50):
     all_items   = sorted(item_popularity.keys())
     item_to_idx = {item: idx for idx, item in enumerate(all_items)}
@@ -235,19 +330,30 @@ def scale_split(X, train_idx, test_idx):
     return sc.fit_transform(X_train), sc.transform(X_test)
 
 
-def probe_one(X_tr, X_te, y_tr, y_te, alpha=1.0):
+def probe_one(X_tr, X_te, y_tr, y_te, lengths_te=None, alpha=1.0):
     clf = Ridge(alpha=alpha)
     clf.fit(X_tr, y_tr)
     preds     = clf.predict(X_te)
     r2        = r2_score(y_te, preds)
     rho, pval = spearmanr(y_te, preds)
-    return dict(r2=r2, rho=rho, pval=pval)
+    partial_rho = float('nan')
+    if lengths_te is not None:
+        try:
+            r_xy = rho
+            r_xz, _ = spearmanr(y_te, lengths_te)
+            r_yz, _ = spearmanr(preds, lengths_te)
+            denom = np.sqrt(max(1e-12, (1.0 - r_xz**2) * (1.0 - r_yz**2)))
+            partial_rho = float((r_xy - r_xz * r_yz) / denom)
+        except Exception:
+            pass
+    return dict(r2=r2, rho=rho, pval=pval, partial_rho=partial_rho)
 
 
-def run_probe_set(X, Y, train_idx, test_idx):
+def run_probe_set(X, Y, train_idx, test_idx, lengths=None):
     X_tr, X_te = scale_split(X, train_idx, test_idx)
     Y_tr, Y_te = Y[train_idx], Y[test_idx]
-    return [probe_one(X_tr, X_te, Y_tr[:, i], Y_te[:, i]) for i in range(Y.shape[1])]
+    lengths_te = lengths[test_idx] if lengths is not None else None
+    return [probe_one(X_tr, X_te, Y_tr[:, i], Y_te[:, i], lengths_te=lengths_te) for i in range(Y.shape[1])]
 
 
 
@@ -880,6 +986,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
               run_mf=False,
               run_coldstart_flag=False,
               run_behavior_analysis=False,
+              run_e1=False,
               device='cuda',
               out_dir='probe_results',
               seed=42,
@@ -905,7 +1012,7 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
 
     item_popularity, item_counts = compute_item_popularity(user_train)
     tail_items                   = head_tail_split(item_counts)
-    metrics, user_order = compute_proxies(user_train, item_popularity, tail_items, dataset_name)
+    metrics, user_order = compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=itemnum)
     n_users = len(user_order)
     print(f"[INFO] Qualified users: {n_users}  |  Items: {itemnum}  "
           f"|  Tail items: {len(tail_items)}")
@@ -922,6 +1029,14 @@ def run_probe(dataset_name, model_path, model_type='SASRec',
         model_shuf, _ = load_sasrec(dataset_name, shuffled_model_path,
                                      usernum, itemnum, device, model_type,
                                      maxlen=maxlen, hidden_units=hidden_units, num_heads=num_heads, norm_first=norm_first)
+
+    if run_e1:
+        lengths = np.array([len(user_train[u]) for u in user_order])
+        run_e1_experiment(
+            dataset_name, model_path, model_type, usernum, itemnum, device,
+            user_train, user_order, Y, train_idx, test_idx, lengths, out_dir
+        )
+        return
 
     with open(out_txt, 'w') as f:
         _pw(f"Behavioral Probing — {dataset_name}\n"
@@ -1035,6 +1150,7 @@ if __name__ == '__main__':
     parser.add_argument('--run_mf',                action='store_true')
     parser.add_argument('--run_coldstart',         action='store_true')
     parser.add_argument('--run_behavior_analysis', action='store_true')
+    parser.add_argument('--run_e1',                action='store_true', help='Run E1 Behavioral Encoding Map (Table 3)')
     parser.add_argument('--device',                default='cuda')
     parser.add_argument('--model_type', default='SASRec', type=str)
     parser.add_argument('--out_dir',               default='probe_results')
@@ -1053,6 +1169,7 @@ if __name__ == '__main__':
         run_mf                = args.run_mf,
         run_coldstart_flag    = args.run_coldstart,
         run_behavior_analysis = args.run_behavior_analysis,
+        run_e1                = args.run_e1,
         device                = args.device,
         out_dir               = args.out_dir,
         seed                  = args.seed,
@@ -1060,4 +1177,125 @@ if __name__ == '__main__':
         hidden_units          = args.hidden_units,
         num_heads             = args.num_heads,
         norm_first            = args.norm_first,
-    )
+    )
+
+
+def compute_osi_scores(user_train, item_popularity, tail_items, dataset_name, itemnum=None, seed=42):
+    # Compute on original history
+    metrics_orig, u_order = compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=itemnum)
+    # Permute order of interactions for each user
+    np.random.seed(seed)
+    shuffled_train = {u: list(np.random.permutation(seq)) for u, seq in user_train.items()}
+    metrics_perm, _ = compute_proxies(shuffled_train, item_popularity, tail_items, dataset_name, itemnum=itemnum)
+
+    Y_orig = np.array([metrics_orig[u] for u in u_order])
+    Y_perm = np.array([metrics_perm[u] for u in u_order])
+
+    osi_dict = {}
+    for pi, name in enumerate(PROXY_NAMES):
+        rho, _ = spearmanr(Y_orig[:, pi], Y_perm[:, pi])
+        osi = float(max(0.0, 1.0 - rho)) if not np.isnan(rho) else 0.0
+        osi_dict[name] = osi
+    return osi_dict
+
+
+def format_table3(dataset_name, model_type, n_users, res_model, res_mf, res_boi, res_last, res_rand, osi_dict):
+    lines = []
+    lines.append("=" * 115)
+    lines.append(f"  Table 3 (E1): Behavioral Encoding Map — {dataset_name}  |  n={n_users}")
+    lines.append("=" * 115)
+    header = f"  {'Proxy':<35}  {'OSI':>7}  {model_type:>18}  {'MF-SVD':>18}  {'BoI':>18}  {'Last-Item':>18}  {'Random':>10}"
+    lines.append(header)
+    lines.append("  " + "-" * 111)
+
+    def fmt_cell(r):
+        rho = r['rho']
+        pr = r.get('partial_rho', float('nan'))
+        if not np.isnan(pr):
+            return f"{rho:6.4f} ({pr:6.4f})"
+        return f"{rho:6.4f}"
+
+    for i, name in enumerate(PROXY_NAMES):
+        osi_val = osi_dict.get(name, 0.0)
+        c_model = fmt_cell(res_model[i])
+        c_mf    = fmt_cell(res_mf[i])
+        c_boi   = fmt_cell(res_boi[i])
+        c_last  = fmt_cell(res_last[i])
+        c_rand  = f"{res_rand[i]['rho']:6.4f}"
+        row = f"  {name:<35}  {osi_val:7.4f}  {c_model:>18}  {c_mf:>18}  {c_boi:>18}  {c_last:>18}  {c_rand:>10}"
+        lines.append(row)
+
+    lines.append("  " + "-" * 111)
+    lines.append("  Values reported as: Spearman rho_S (partial rho_S controlled for sequence length n_u).")
+    lines.append("  OSI: Order Sensitivity Index (Equation 2 in draft). OSI ~ 0 = Static, OSI > 0 = Temporal.")
+    lines.append("=" * 115)
+    
+    print("\n".join(lines))
+    return lines
+
+
+def run_e1_experiment(dataset_name, model_path, model_type, usernum, itemnum, device, user_train, user_order, Y, train_idx, test_idx, lengths, out_dir):
+    model, model_args = load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type)
+    
+    print("\n" + "=" * 90)
+    print(f"  [E1 Execution] Behavioral Encoding Map (Table 3) — {dataset_name} | Model: {model_type}")
+    print("=" * 90)
+    
+    # 1. Target Sequential Model
+    print(f"  [1/5] Extracting representations for {model_type}...")
+    X_model = extract_sasrec_embeddings(model, user_train, user_order, model_args.maxlen, device, model_type=model_type, itemnum=itemnum)
+    res_model = run_probe_set(X_model, Y, train_idx, test_idx, lengths=lengths)
+    
+    # 2. MF-SVD Baseline
+    print("  [2/5] Extracting MF-SVD reference representations...")
+    item_popularity, _ = compute_item_popularity(user_train)
+    X_mf = extract_mf_embeddings(user_train, user_order, item_popularity, hidden_dim=50)
+    res_mf = run_probe_set(X_mf, Y, train_idx, test_idx, lengths=lengths)
+    
+    # 3. BoI (Bag of Items) Reference
+    print("  [3/5] Extracting BoI (Bag of Items) reference representations...")
+    X_boi = extract_boi_embeddings(model, user_train, user_order, device)
+    res_boi = run_probe_set(X_boi, Y, train_idx, test_idx, lengths=lengths)
+    
+    # 4. Last-Item Reference
+    print("  [4/5] Extracting Last-Item reference representations...")
+    X_last = extract_last_item_embeddings(model, user_train, user_order, device)
+    res_last = run_probe_set(X_last, Y, train_idx, test_idx, lengths=lengths)
+    
+    # 5. Random Gaussian Baseline
+    print("  [5/5] Extracting Random Gaussian control representations...")
+    X_rand = np.random.randn(len(user_order), 50).astype(np.float32)
+    res_rand = run_probe_set(X_rand, Y, train_idx, test_idx, lengths=lengths)
+    
+    # 6. Compute OSI scores
+    print("  Computing Order Sensitivity Index (OSI) across all proxies...")
+    tail_items = head_tail_split(item_popularity)
+    osi_scores = compute_osi_scores(user_train, item_popularity, tail_items, dataset_name, itemnum=itemnum)
+    
+    # 7. Print and save Table 3
+    table_lines = format_table3(dataset_name, model_type, len(user_order), res_model, res_mf, res_boi, res_last, res_rand, osi_scores)
+    out_table_path = os.path.join(out_dir, f"Table3_E1_{dataset_name}_{model_type}.txt")
+    with open(out_table_path, "w", encoding="utf-8") as tf:
+        tf.write("\n".join(table_lines) + "\n")
+    print(f"\n[SAVED] Table 3 results written → {out_table_path}")
+    
+    # Save structured JSON
+    json_out = os.path.join(out_dir, f"Table3_E1_{dataset_name}_{model_type}.json")
+    json_data = {
+        'dataset': dataset_name,
+        'model_type': model_type,
+        'n_users': len(user_order),
+        'proxies': PROXY_NAMES,
+        'osi': osi_scores,
+        'results': {
+            model_type: res_model,
+            'MF-SVD': res_mf,
+            'BoI': res_boi,
+            'Last-Item': res_last,
+            'Random': res_rand
+        }
+    }
+    with open(json_out, "w", encoding="utf-8") as jf:
+        json.dump(json_data, jf, indent=2)
+    print(f"[SAVED] Structured JSON written → {json_out}\n")
+    return json_data

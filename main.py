@@ -163,8 +163,8 @@ if __name__ == '__main__':
                 best_test_ndcg = max(t_test[0], best_test_ndcg)
                 best_test_hr = max(t_test[1], best_test_hr)
                 folder = args.dataset + '_' + args.train_dir
-                fname = args.model_type + '.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
-                fname = fname.format(epoch, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen)
+                fname = args.model_type + '.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.seed={}.pth'
+                fname = fname.format(epoch, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen, args.seed)
                 torch.save(model.state_dict(), os.path.join(folder, fname))
 
             f.write(str(epoch) + ' ' + str(t_valid) + ' ' + str(t_test) + '\n')
@@ -174,8 +174,8 @@ if __name__ == '__main__':
     
         if epoch == args.num_epochs:
             folder = args.dataset + '_' + args.train_dir
-            fname = args.model_type + '.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.pth'
-            fname = fname.format(args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen)
+            fname = args.model_type + '.epoch={}.lr={}.layer={}.head={}.hidden={}.maxlen={}.seed={}.pth'
+            fname = fname.format(args.num_epochs, args.lr, args.num_blocks, args.num_heads, args.hidden_units, args.maxlen, args.seed)
             torch.save(model.state_dict(), os.path.join(folder, fname))
     
     f.close()
