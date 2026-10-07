@@ -83,8 +83,9 @@ def rank_stability(pop_seq):
 
 
 def compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=None):
+    base_name = dataset_name.replace('_shuffled2', '').replace('_shuffled', '')
     try:
-        with open(f'data/{dataset_name}_metadata.json', 'r') as f:
+        with open(f'data/{base_name}_metadata.json', 'r') as f:
             meta = json.load(f)
     except Exception:
         meta = {'users': {}, 'items': {}}
