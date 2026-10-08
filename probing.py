@@ -82,7 +82,7 @@ def rank_stability(pop_seq):
     return float(rho) if not np.isnan(rho) else 0.0
 
 
-def compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=None):
+def compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=None, min_seq_len=10):
     base_name = dataset_name.replace('_shuffled2', '').replace('_shuffled', '')
     try:
         with open(f'data/{base_name}_metadata.json', 'r') as f:
@@ -135,7 +135,7 @@ def compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemn
     for u in user_train:
         seq = user_train[u]
         N   = len(seq)
-        if N < MIN_SEQ_LEN:
+        if N < min_seq_len:
             continue
 
         pop = np.array([item_popularity.get(i, 0.0) for i in seq])

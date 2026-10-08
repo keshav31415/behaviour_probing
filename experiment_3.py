@@ -108,7 +108,7 @@ def run_experiment_3(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], models=["
     tail_items = head_tail_split(item_counts)
     
     # Ground-truth labels on H_in (Input Sequence)
-    metrics_in, user_order = compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=itemnum)
+    metrics_in, user_order = compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemnum=itemnum, min_seq_len=10)
     n_users = len(user_order)
     Y_in = np.array([metrics_in[u] for u in user_order])
     lengths = np.array([len(user_train[u]) for u in user_order])
@@ -120,9 +120,10 @@ def run_experiment_3(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], models=["
     print("\nComputing alternative history regimes for Leakage Ablation...")
     user_full = {}
     user_fut  = {}
-    for u in user_train:
+    for u in user_order:
         seq = list(user_train[u])
-        fut = []
+        half = max(3, len(seq) // 2)
+        fut = list(seq[half:])
         if u in user_valid and user_valid[u]:
             seq.append(user_valid[u][0])
             fut.append(user_valid[u][0])
@@ -130,10 +131,10 @@ def run_experiment_3(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], models=["
             seq.append(user_test[u][0])
             fut.append(user_test[u][0])
         user_full[u] = seq
-        user_fut[u]  = fut if fut else seq[-1:]
+        user_fut[u]  = fut
         
-    metrics_full, _ = compute_proxies(user_full, item_popularity, tail_items, dataset_name, itemnum=itemnum)
-    metrics_fut, _  = compute_proxies(user_fut, item_popularity, tail_items, dataset_name, itemnum=itemnum)
+    metrics_full, _ = compute_proxies(user_full, item_popularity, tail_items, dataset_name, itemnum=itemnum, min_seq_len=3)
+    metrics_fut, _  = compute_proxies(user_fut, item_popularity, tail_items, dataset_name, itemnum=itemnum, min_seq_len=3)
     Y_full = np.array([metrics_full[u] for u in user_order])
     Y_fut  = np.array([metrics_fut[u] for u in user_order])
     print("Labels ready: H_in, H_full, H_fut.")
