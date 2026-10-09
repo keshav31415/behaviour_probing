@@ -65,8 +65,7 @@ def run_experiment_5(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], models=["
     target_items = [user_test[u][0] for u in user_order]
     target_pops = np.array([item_popularity.get(i, 0.0) for i in target_items])
     pop_deciles = np.digitize(target_pops, np.percentile(target_pops, np.linspace(10, 90, 9)))
-    
-    maxlen = 200 if dataset_name == 'ml-1m' else 50
+    maxlen = 200
     
     # Pre-generate standard 100 negative items per user for test ranking
     np.random.seed(42)
