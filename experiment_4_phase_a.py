@@ -146,8 +146,8 @@ def run_experiment_4_phase_a(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], m
             ckpt_path = ckpts[0]
             
             # Load model
-            model = load_sasrec(model_type, dataset_name, usernum, itemnum, ckpt_path, device)
-            maxlen = 200 if dataset_name == 'ml-1m' else 50
+            model, model_args = load_sasrec(dataset_name, ckpt_path, usernum, itemnum, device, model_type)
+            maxlen = model_args.maxlen
             
             # 1. Full embeddings (for Task 2 cold-start cohorts)
             X_full = extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, model_type=model_type, itemnum=itemnum)
