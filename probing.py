@@ -241,14 +241,16 @@ def compute_proxies(user_train, item_popularity, tail_items, dataset_name, itemn
 # Embedding Extraction
 
 
-def seq_to_arr(seq_list, maxlen, model_type=None, itemnum=None):
+def seq_to_arr(seq_list, maxlen, model_type=None, itemnum=None, max_valid_item=None):
     arr = np.zeros([maxlen], dtype=np.int32)
     idx = maxlen - 1
     if model_type == 'BERT4Rec':
-        arr[idx] = itemnum + 1
+        arr[idx] = itemnum + 1 if max_valid_item is None else min(itemnum + 1, max_valid_item)
         idx -= 1
     for item in reversed(seq_list):
         if idx == -1: break
+        if max_valid_item is not None and item > max_valid_item:
+            item = 0 # Out-of-vocabulary item mapped to padding
         arr[idx] = item
         idx -= 1
     return arr
@@ -257,6 +259,7 @@ def seq_to_arr(seq_list, maxlen, model_type=None, itemnum=None):
 def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, truncate_k=None, batch_size=256, model_type=None, itemnum=None):
     model.eval()
     reps = []
+    max_valid_item = model.item_emb.weight.shape[0] - 1 if hasattr(model, 'item_emb') else None
     with torch.no_grad():
         for i in range(0, len(user_order), batch_size):
             batch_u = user_order[i:i+batch_size]
@@ -265,7 +268,7 @@ def extract_sasrec_embeddings(model, user_train, user_order, maxlen, device, tru
                 seq = user_train[u]
                 if truncate_k is not None:
                     seq = seq[:truncate_k]
-                arrs.append(seq_to_arr(seq, maxlen, model_type, itemnum))
+                arrs.append(seq_to_arr(seq, maxlen, model_type, itemnum, max_valid_item=max_valid_item))
             log_feats = model.log2feats(np.array(arrs))
             reps.extend(log_feats[:, -1, :].cpu().numpy())
     return np.array(reps)
@@ -853,6 +856,11 @@ def format_comparison_table(res_seq, res_shuf, res_mf, res_null, dataset_name, n
 
 def load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type='SASRec',
                 maxlen=200, hidden_units=50, num_heads=1, norm_first=False):
+    state_dict = torch.load(model_path, map_location=device)
+    if 'item_emb.weight' in state_dict:
+        itemnum = state_dict['item_emb.weight'].shape[0] - 1
+    if 'pos_emb.weight' in state_dict:
+        maxlen = state_dict['pos_emb.weight'].shape[0] - 1
     ns = argparse.Namespace(
         dataset=dataset_name, maxlen=maxlen, hidden_units=hidden_units, num_blocks=2,
         num_epochs=201, num_heads=num_heads, dropout_rate=0.2, l2_emb=0.0,
@@ -866,7 +874,7 @@ def load_sasrec(dataset_name, model_path, usernum, itemnum, device, model_type='
         model = BERT4Rec(usernum, itemnum, ns).to(device)
     else:
         raise ValueError("Invalid model type")
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.load_state_dict(state_dict)
     model.eval()
     return model, ns
 
