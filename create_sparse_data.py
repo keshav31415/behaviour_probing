@@ -30,9 +30,8 @@ for ds in datasets:
         kept_users = set(random.sample(all_users, n_keep))
         
         with open(sparse_file, "w", encoding="utf-8") as out:
-            for u in all_users:
-                if u in kept_users:
-                    for i in user_interactions[u]:
-                        out.write(f"{u} {i}\n")
+            for new_u, u in enumerate(sorted(list(kept_users)), start=1):
+                for i in user_interactions[u]:
+                    out.write(f"{new_u} {i}\n")
                         
         print(f"  Created {sparse_file}: {len(kept_users)} users ({f*100:.0f}%)")

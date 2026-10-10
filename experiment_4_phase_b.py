@@ -34,14 +34,17 @@ PROXY_ABBRS = [
 
 FRACTIONS = [0.10, 0.25, 0.50]
 
-def run_experiment_4_phase_b(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], models=["SASRec", "BERT4Rec", "GRU4Rec"], device="cuda" if torch.cuda.is_available() else "cpu"):
+def run_experiment_4_phase_b(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], models=["SASRec"], device="cuda" if torch.cuda.is_available() else "cpu"):
     print("=" * 80)
     print(f"EXPERIMENT 4 (PHASE B): TRAINING SPARSITY GRID (RQ4) — DATASET: {dataset_name.upper()}")
     print(f"Device: {device}")
     print("=" * 80)
     
-    out_dir = "probe_results_e4"
-    os.makedirs(out_dir, exist_ok=True)
+    out_dirs = ["probe_results_e4"]
+    if os.path.exists("/kaggle/working"):
+        out_dirs.append("/kaggle/working/probe_results_e4")
+    for d in out_dirs:
+        os.makedirs(d, exist_ok=True)
     
     # 1. Load full base dataset interactions for standard ground-truth evaluation
     base_dataset = data_partition(dataset_name)
@@ -159,11 +162,19 @@ def run_experiment_4_phase_b(dataset_name="ml-1m", seeds=[42, 43, 44, 45, 46], m
                 e4_b_results["sparsity_grid"][model_type][f_str] = p_dict
                 print(f"  Averaged {len(seed_rhos)} seeds for {model_type} at {f*100:.0f}% data.")
                 
-    # Save structured results
-    out_file = os.path.join(out_dir, f"E4_PhaseB_results_{dataset_name}.json")
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump(e4_b_results, f, indent=2)
-    print(f"\n[COMPLETE] Experiment 4 Phase B saved -> {out_file}")
+            # Incremental save after each fraction
+            for d in out_dirs:
+                out_file = os.path.join(d, f"E4_PhaseB_results_{dataset_name}.json")
+                with open(out_file, "w", encoding="utf-8") as f:
+                    json.dump(e4_b_results, f, indent=2)
+            print(f"  [CHECKPOINT] Updated E4_PhaseB_results_{dataset_name}.json", flush=True)
+                
+    # Save final structured results
+    for d in out_dirs:
+        out_file = os.path.join(d, f"E4_PhaseB_results_{dataset_name}.json")
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(e4_b_results, f, indent=2)
+    print(f"\n[COMPLETE] Experiment 4 Phase B saved for {dataset_name}")
     return e4_b_results
 
 if __name__ == '__main__':
